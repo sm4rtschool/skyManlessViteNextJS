@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Frontend Gate IN - Manless Parking</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #000;
+            color: #0f0;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .status {
+            background: #111;
+            border: 1px solid #333;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success { border-color: #0f0; }
+        .error { border-color: #f00; }
+        .warning { border-color: #ff0; }
+        .button {
+            background: #333;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 10px 15px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+        .button:hover {
+            background: #0f0;
+            color: #000;
+        }
+        .log {
+            background: #111;
+            border: 1px solid #333;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 0;
+            border-bottom: 1px solid #222;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚪➡️ Test Frontend Gate IN</h1>
+        <p>Manual testing tool untuk Gate IN interface</p>
+        
+        <div class="status" id="connection-status">
+            <h3>📡 Connection Status</h3>
+            <div id="websocket-status">WebSocket: <span id="ws-status">DISCONNECTED</span></div>
+            <div id="backend-status">Backend: <span id="backend-status-text">CHECKING...</span></div>
+        </div>
+        
+        <div class="status">
+            <h3>🎮 Test Controls</h3>
+            <button class="button" onclick="testWebSocketConnection()">Test WebSocket</button>
+            <button class="button" onclick="testCardScan()">Simulate Card Scan</button>
+            <button class="button" onclick="testGateOpen()">Test Gate Open</button>
+            <button class="button" onclick="testCameraCapture()">Test Camera Capture</button>
+            <button class="button" onclick="requestSystemStatus()">Get System Status</button>
+            <button class="button" onclick="clearLogs()">Clear Logs</button>
+        </div>
+        
+        <div class="status">
+            <h3>📋 Test Logs</h3>
+            <div class="log" id="test-logs"></div>
+        </div>
+        
+        <div class="status">
+            <h3>🔧 Frontend Links</h3>
+            <p>
+                <a href="http://localhost:5173/?gate=gate_in" target="_blank" style="color: #0f0;">
+                    🚪➡️ Gate IN Interface (Kiosk Mode)
+                </a>
+            </p>
+            <p>
+                <a href="http://localhost:5173/" target="_blank" style="color: #0f0;">
+                    🖥️ Monitoring Center
+                </a>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let logs = [];
+        
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = {
+                timestamp,
+                message,
+                type
+            };
+            
+            logs.unshift(logEntry);
+            if (logs.length > 100) logs = logs.slice(0, 100);
+            
+            updateLogDisplay();
+        }
+        
+        function updateLogDisplay() {
+            const logContainer = document.getElementById('test-logs');
+            logContainer.innerHTML = logs.map(log => {
+                const color = log.type === 'success' ? '#0f0' : 
+                             log.type === 'error' ? '#f00' : 
+                             log.type === 'warning' ? '#ff0' : '#0ff';
+                return `<div class="log-entry">
+                    <span class="timestamp">[${log.timestamp}]</span>
+                    <span style="color: ${color}">${log.message}</span>
+                </div>`;
+            }).join('');
+        }
+        
+        function testWebSocketConnection() {
+            addLog('🔗 Testing WebSocket connection...', 'info');
+            
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            
+            try {
+                ws = new WebSocket('ws://localhost:8000/ws');
+                
+                ws.onopen = function() {
+                    addLog('✅ WebSocket connected successfully!', 'success');
+                    document.getElementById('ws-status').textContent = 'CONNECTED';
+                    document.getElementById('ws-status').style.color = '#0f0';
+                    
+                    // Send ping
+                    ws.send(JSON.stringify({
+                        type: 'ping',
+                        payload: { timestamp: new Date().toISOString() }
+                    }));
+                    addLog('📤 Ping sent to server', 'info');
+                };
+                
+                ws.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        addLog(`📨 Received: ${data.type} - ${JSON.stringify(data.payload)}`, 'success');
+                    } catch (error) {
+                        addLog(`📨 Received (raw): ${event.data}`, 'info');
+                    }
+                };
+                
+                ws.onclose = function(event) {
+                    addLog(`🔌 WebSocket disconnected (Code: ${event.code})`, 'warning');
+                    document.getElementById('ws-status').textContent = 'DISCONNECTED';
+                    document.getElementById('ws-status').style.color = '#f00';
+                };
+                
+                ws.onerror = function(error) {
+                    addLog('❌ WebSocket error: ' + error, 'error');
+                    document.getElementById('ws-status').textContent = 'ERROR';
+                    document.getElementById('ws-status').style.color = '#f00';
+                };
+                
+            } catch (error) {
+                addLog('❌ Failed to create WebSocket: ' + error, 'error');
+            }
+        }
+        
+        function testCardScan() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addLog('⚠️ WebSocket not connected. Connect first.', 'warning');
+                return;
+            }
+            
+            const cardId = 'TEST_CARD_' + Math.floor(Math.random() * 1000);
+            const message = {
+                type: 'card_scan',
+                payload: {
+                    gate: 'gate_in',
+                    card_id: cardId,
+                    timestamp: new Date().toISOString()
+                }
+            };
+            
+            ws.send(JSON.stringify(message));
+            addLog(`💳 Card scan simulated: ${cardId}`, 'info');
+        }
+        
+        function testGateOpen() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addLog('⚠️ WebSocket not connected. Connect first.', 'warning');
+                return;
+            }
+            
+            const message = {
+                type: 'gate_control',
+                payload: {
+                    gate_id: 'gate_in',
+                    action: 'open',
+                    duration: 10
+                }
+            };
+            
+            ws.send(JSON.stringify(message));
+            addLog('🚪 Gate open command sent', 'info');
+        }
+        
+        function testCameraCapture() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addLog('⚠️ WebSocket not connected. Connect first.', 'warning');
+                return;
+            }
+            
+            const message = {
+                type: 'camera_control',
+                payload: {
+                    gate_id: 'gate_in',
+                    command: 'capture_image'
+                }
+            };
+            
+            ws.send(JSON.stringify(message));
+            addLog('📸 Camera capture command sent', 'info');
+        }
+        
+        function requestSystemStatus() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addLog('⚠️ WebSocket not connected. Connect first.', 'warning');
+                return;
+            }
+            
+            const message = {
+                type: 'request_system_status',
+                payload: {}
+            };
+            
+            ws.send(JSON.stringify(message));
+            addLog('📊 System status requested', 'info');
+        }
+        
+        function clearLogs() {
+            logs = [];
+            updateLogDisplay();
+            addLog('🗑️ Logs cleared', 'info');
+        }
+        
+        // Check backend status
+        function checkBackendStatus() {
+            fetch('http://localhost:8000/api/parking/capacity')
+                .then(response => {
+                    if (response.ok) {
+                        document.getElementById('backend-status-text').textContent = 'ONLINE';
+                        document.getElementById('backend-status-text').style.color = '#0f0';
+                        return response.json();
+                    } else {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                })
+                .then(data => {
+                    addLog('✅ Backend API responding: ' + JSON.stringify(data), 'success');
+                })
+                .catch(error => {
+                    document.getElementById('backend-status-text').textContent = 'OFFLINE';
+                    document.getElementById('backend-status-text').style.color = '#f00';
+                    addLog('❌ Backend check failed: ' + error.message, 'error');
+                });
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            addLog('🚀 Test frontend initialized', 'success');
+            checkBackendStatus();
+            
+            // Auto-refresh backend status every 30 seconds
+            setInterval(checkBackendStatus, 30000);
+        });
+    </script>
+</body>
+</html> 
