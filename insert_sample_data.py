@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Script untuk menginsert sample data ke database MySQL/MariaDB
 Sistem Manless Parking
@@ -9,6 +10,11 @@ from mysql.connector import Error
 from datetime import datetime
 import sys
 import os
+
+# Set console encoding untuk Windows
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
 # Konfigurasi database
 DB_CONFIG = {
